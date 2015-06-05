@@ -1,0 +1,353 @@
+\documentclass[titlepage,12pt]{article} 
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage[pdftex]{graphicx}
+%\usepackage[usenames]{color}
+\usepackage{url}
+%\pagestyle{headings}
+
+\title{DIEA INTERLAB API\\
+Manual del Programador}  
+\author{Alberto Mijares\\  
+\texttt{amijares@mcs.com.ve}\\
+Mijares Consultoría y Sistemas SL\\
+\texttt{http://www.mcs.com.ve}\\
+\includegraphics[scale=.6]{logo-mijares.png}}
+\date{\today}
+
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+
+\newpage
+
+\parskip=5mm
+
+\section{Descripción General}\label{general}
+
+Este documento describe el API \emph{(Application Programming
+  Interface)} para la comunicación entre diferentes aplicaciones para
+la gestión de laboratorios clínicos y el DIEA INTERLAB. Está orientado
+a Ingenieros, Técnicos y profesionales informáticos con habilidades en
+programación que deseen integrar sus aplicaciones o automatizar
+ciertas operaciones del negocio.
+
+Para los efectos de este documento, identificaremos los tres elementos
+principales que actúan como protagonistas:
+\begin{description}
+  \item[Estación de Trabajo:] es cualquier computadora,
+    conectada a la red de datos del laboratorio, desde donde es
+    posible enviar solucitudes de análisis a los Analizadores; o bien,
+    recibir los resultados de dichos análisis.
+  \item[Interfaz:] es el dispositivo de software que sirve de
+    puente de comunicación entre las Estaciones de Trabajo y los
+    Analizadores. La interfaz a la que nos referimos en este documento
+    es el DIEA INTERLAB (Dispositivo Interfaz para Equipos Analizadores).
+  \item[Analizador:] es cualquiera de los equipos que analizan
+    las muestras de laboratorio y generan un resultado. La lista de
+    Analizadores soportados por la Interfaz está autocontenida en este
+    manual.
+\end{description}
+
+La Interfaz ejecuta un webservice, encargado de manejar la
+comunicación con las diferentes estaciones de trabajo a través del
+protocolo HTTP\footnote{Hypertext Transfer Protocol}. Los detalles
+para llevar a cabo esta comunicación se encuentran en la
+sección~\ref{http}, página~\pageref{http}.
+
+La comunicación entre la interfaz y cada analizador se llevará a cabo
+de distintas formas, dependiendo de las facilidades que ofrezca cada
+analizador. En algunos casos puede llevarse a cabo via serial, y en
+otros casos puede ser a través de algún protocolo de la familia
+IP\footnote{Internet Protocol}. De cualquier forma, la implementación
+del webservice en la interfaz hace que esto sea transparente para el
+desarrollador.
+
+\section{Comunicación HTTP:\newline INTERFAZ $\longleftrightarrow$ Estación de Trabajo}\label{http}
+
+\subsection{General}\label{http.general}
+
+La interfaz permite la comunicación \underline{bidireccional} a través
+de un webservice HTTP, a través
+del cual se comunicará cualquier estación de trabajo. Para la llevar a
+cabo dicha comunicación se debe implementar el protocolo HTTP o, en su
+defecto, hacer uso de una librería que lo implemente en el lenguaje de
+programación de su preferencia. Esta librería debe ser compatible con
+el RFC 2616\footnote{Disponible en \url{http://www.rfc-editor.org/rfc/rfc2616.txt}}.
+
+Existen tres operaciones básicas que podemos realizar cuando
+interactuamos con la interfaz:
+\begin{itemize}
+\item Enviar un paciente a un analizador.
+\item Solicitar los resultados disponibles de un analizador.
+\item Cambiar la configuración de la red de la interfaz.
+\end{itemize}
+
+En esta sección se especifica cómo enviar un paciente y obtener los
+resultados disponibles de un analizador. Cómo cambiar la configuración
+de la interfaz se especifica en la sección \ref{netconfig}, página
+\pageref{netconfig}.
+
+
+
+Todas la operaciones se relizan enviando una petición HTTP al
+webservice que se ejecuta en la interfaz, usando el método \textbf{GET}, puerto
+\textbf{1080}, en el directorio~\textbf{cgi-bin}, al programa
+\textbf{gw.cgi}; es decir, suponiendo que la IP de la interfaz es la
+192.169.1.1, la URL base para cualquier operación sería
+
+\texttt{http://192.168.1.1:1080/cgi-bin/gw.cgi?}
+
+\noindent y luego se concatenan los parámetros requeridos para cumplir
+con los requisitos de la operación.
+
+Los parámetros del URL varían dependiendo del analizador con que se
+comunique la estación de trabajo; con la excepción del parámetro
+\textsf{lab}, que es requerido indistintamente, ya que su valor indica
+al webservice con qué analizador se desea comunicar y qué librería
+debe emplear para ejecutar la acción solicitada.
+
+La lista de parámetros específicos para cada analizador, así como sus
+posibles valores, se detallan a continuación:
+
+\subsubsection{Analizador BT3000Plus}
+
+Parámetros del URL y su descripción:
+
+\begin{description}
+  \item[\textsf{lab}] Determina la librería que se debe utilizar para
+    enviar la petición al analizador. Para comunicarse con un
+    analizador BT3000Plus, el valor de este parámetro debe ser la cadena
+    \texttt{bt3000}.
+  \item[\textsf{d}] El valor de esta variable corresponde al nombre
+    del puerto serial que utiliza la interfaz para comunicarse con el
+    analizador. En la mayoría de los casos, será la cadena de texto
+    \texttt{ttyS0}\footnote{Nombre del dispositivo asociado con el
+      primer puerto serial (DB9 - RS232) en sistemas GNU/Linux}, pero
+    puede variar de acuerdo a ciertas características de la
+    instalación. Se determina en el proceso de instalación de la
+    interfaz.
+
+
+  \item[\textsf{s}] Su valor debe ser una cadena de texto y representa
+    una instrucción de acuerdo al tipo de operación que se desee
+    realizar. Solo es posible realizar dos tipos de operaciones:
+    enviar un paciente o consultar los resultados disponibles. En el
+    caso del envío de pacientes, la cadena contiene todos los datos
+    necesarios como código del paciente, códigos de los análisis a
+    realizar, etc. El procedimiento para su construcción se detalla en
+    más adelante esta sección. Cuando se consultan los resultados
+    disponibles, el valor de este parámetro consiste en un solo
+    caracter, como veremos más adelante.
+\end{description}
+
+Se debe tener en cuenta que si el valor de alguno de los parámetros
+que se transmiten es más corto que lo requerido por el protocolo, debe
+agragarse un espacio \textbf{antes} con el fin de cumplir con la
+especificación. Por ejemplo, el código de cada tipo de análisis debe
+tener una longitud de 4 caracteres; por ende, para enviar el código
+\textsf{GLY}, se debe agregar un espacio para alzanzar la longitud
+requerida como en \fbox{\textsf{ GLY}}.
+
+La respuesta de la interfaz depende de dos factores: a) el tipo de
+operación que se realizó y b) el resultado de la operación. Es muy
+importante que la evaluación de los resultados se haga, en una primera
+instancia, basada en el valor de las cabaceras \textsf{HTTP},
+específicamente el \textsf{STATUS~CODE}; de esta forma estaremos
+haciendo un uso adecuado del protocolo y liberamos de carga
+innecesaria la aplicación que se ejecuta en la estación de
+trabajo. También debemos señalar que el webservice está programado
+para enviar una respuesta \emph{sin cuerpo} en un escenario
+particular, por lo que la única forma de determinar qué tipo de
+respuesta estamos recibiendo es evaluando el \textsf{STATUS~CODE}
+recibido.
+
+\paragraph{Transmisión del Paciente} 
+
+Para construir la cadena de texto que se debe enviar al analizador, y
+que será el valor del parámetro \textsf{s} en la URL, se deben seguir
+las reglas que se explican a continuación y se ilustran mejor en la
+siguiente tabla.
+
+  \noindent\makebox[\width][r]{Código del paciente}\dotfill \mbox{15
+    caracteres} \\
+  \makebox[\width][r]{Tipo de lista}\dotfill
+  \mbox{\textsf{T} para rutina o \textsf{R} para STAT}
+  \\
+  \makebox[\width][r]{Tipo de suero}\dotfill \mbox{\textsf{S} para
+    suero y \textsf{U} para orina} \\
+  \makebox[\width][r]{Indicar si
+    el paciente es un clon}\dotfill \mbox{\textsf{Y} para si y
+    \textsf{N} para no} \\
+  \makebox[\width][r]{Posición en el
+    contenedor}\dotfill \mbox{00 si es desconocido}
+  \\
+  \makebox[\width][r]{Número de test a ser ejecutados}\dotfill
+  \mbox{del 01 al 99} \\
+  \makebox[\width][r]{Códigos de tests a ser
+    ejecutados}\dotfill \mbox{4 caracteres} \\
+
+
+Si el código del paciente tiene menos de 15 caracteres, deben ser
+completados con ceros a la izquierda. El tipo de lista es un
+caracter. El tipo de suero es un caracter. El indicador de clon es un
+caracter. La posición del contenedor se expresa con dos caracteres, y
+debe ser 00 si no se desea especificar. La cantidad de pruebas a ser
+ejecutado son dos caracteres numéricos. Los códigos de test a ser
+ejecutados deben ser 4 caracteres, y completar con espacios en blanco
+a la izquierda en los casos que lo requiera.
+
+\fbox{\emph{Todo caracter no numérico debe estar en mayúscula.}}
+
+Si la comunicación es exitosa, entonces la interfaz responde con la
+cadena de texto ``Aceptado en la posicion'', seguido de un número que
+identifica la posición donde se inserta el paciente. Por ejemplo:
+``Aceptado~en~la~posicion~1''. El \textsf{STATUS~CODE} en este caso es
+``\textsf{200~OK}''.
+
+En caso de que la comunicación no sea exitosa La interfaz responde con
+una cadena de texto explicando el error. Adicionalmente, el
+\textsf{STATUS~CODE} corresponde a uno de los siguientes valores:
+
+  \noindent\makebox[\width][r]{\textsf{412 Precondition Failed}}\dotfill \mbox{Indica que ocurrió un error}\\
+  \makebox[\width][r]{\textsf{504 Gateway Timeout}}\dotfill \mbox{El analizador no responde}
+
+Para enviar un paciente con código 00000000000001, tipo
+de suero y análisis GLY, BUN y FEAL a las lista STAT, debe enviar la
+siguiente secuencia de caracteres: ``\textsf{000000000000001RSN0003 GLY BUNFEAL}''. 
+
+Siguiendo el mismo ejemplo, el URL que se debe contruir para
+comunicarse con el webservice, suponiendo que la dirección IP de la
+interfaz es 192.168.1.1, sería el siguiente:
+
+\noindent{{\url{...gw.cgi?lab=bt3000&d=ttyS0&s=000000000000001RSN0003%20GLY%20BUNFEAL}}}
+
+\emph{Nota Bene: en este ejemplo, los espacios en blanco han sido
+  representados de acuerdo a la codificación URL (\%20). Debe asegurarse de
+  que la librería utilizada para la comunicación http maneje la
+  codificación URL adecuadamente, o hacerlo de forma manual en caso
+  contrario.}
+
+
+
+\paragraph{Recepción de Resultados}\par
+
+Hay tres instrucciones para la recepción de resultados; es decir, tres
+posibles valores para el parámetro \textsf{s}:
+
+\begin{center}
+  \begin{tabular}{|c|p{10cm}|}
+    \hline
+    \textsf{R} & Recepción del siguiente informe disponible \\
+    \hline
+    \textsf{L} &
+  Recepción del último informe enviado (en caso de problemas con la
+  recepción) \\
+  \hline 
+  \textsf{A} & Recepción del primer informe disponible (en
+  caso de que se desee recibir nuevamente todos los informes) \\
+  \hline
+\end{tabular}
+\end{center}
+
+Como respuesta a una de estas tres instrucciones, el webservice envía
+el informe requerido (si está disponible) y un \textsf{STATUS~CODE}
+``\textsf{200 OK}''; en caso contrario, podemos obtener los siguientes
+valores:
+
+\begin{description}
+  \item[\textsf{204 No Content}] Indica que no hay resultados
+    disponibles. Este es el único escenario en el que no recibimos
+    contenido en el cuerpo de la respuesta. De esta forma, solo
+    debemos validar las cabeceras HTTP.
+  \item[\textsf{412 Precondition Failed}] Se envió una consulta inválida.
+  \item[\textsf{504 Gateway Timeout}] El analizador no responde.
+  \item[\textsf{500 Internal Server Error}] El webservice retorna este
+    código de error cuando no ha podido manejar la petición de manera
+    adecuada, generalmente por no cumplirse con los requisitos para
+    formular la petición. Se trata de una excepción no prevista en la
+    programación.
+\end{description}
+
+Ante una consulta exitosa que haya recuperado resultados del
+analizador, el webservice devuelve un objeto
+\textsf{JSON}\footnote{Completamente documentado en
+  \url{http://www.json.org/json-es.htlm}} como cuerpo del mensaje, que
+contiene toda la información relativa a los resultados de las pruebas
+disponibles en el analizador. La estructura del objeto es la siguiente:
+
+\begin{minipage}{5cm}
+\ttfamily 
+\textbraceleft cod:``cadena'',\\
+tl:``cadena'',\\
+tm:``cadena''\\
+ni:numero,\\
+res:arreglo\}
+\end{minipage}
+
+El siguiente cuadro explica con el detalle el significado de cada par
+en la estructura:
+\begin{center}
+\begin{tabular}{|c|c|c|} \hline
+\textbf{nombre} & \textbf{tipo de dato} & \textbf{descripción}\\ \hline
+cod & cadena & código del paciente \\ \hline
+tl  & cadena & tipo de lista \\ \hline
+tm  & cadena & tipo de muestra \\ \hline
+ni  & numérico & número de informes \\ \hline
+res & arreglo & resultados \\ \hline
+\end{tabular}
+\end{center}
+
+Los resultados son presentados como un arreglo asociativo donde cada
+par viene separado por comas y expresado de la forma
+
+\fbox{\textsf{NAME:VALUE}} (nombre y valor separado por dos puntos)
+
+\noindent donde \textsf{NAME} es el código del análisis y
+\textsf{VALUE} representa el valor del resultado. Ambos valores son
+una cadena de texto.
+ 
+Para solicitar el siguiente informe disponible, debemos enviar
+la siguiente petición al webservice:
+
+\noindent{\url{http://192.168.1.1:1080/cgi-bin/gw.cgi?lab=bt3000&d=ttyS0&s=R}}
+
+\section{Configuración de Red de la Interfaz}\label{netconfig}
+
+Uno de los modos de operación del webservice funciona como un
+mecanismo de configuración de la interfaz. Específicamente para
+modificar la configuración de la red, de manera que pueda adecuarse al
+entorno en el que se encuentra operando y forme parte de la misma red
+lógica.
+
+Los parámetros que se deben enviar en el URL para realizar esta
+operación son los siguientes:
+
+\begin{description}
+\item[\textsf{lab}] Como ya hemos visto en la sección \ref{http},
+  indica qué librería debe emplear el webservice. En este caso el
+  valor debe ser la cadena de texto \textsf{ipconfig}.
+\item[\textsf{ip}] Su valor corresponder con la nueva dirección IP a
+  configurar. Por ejemplo: \textsf{172.16.12.200}.
+\item[\textsf{mask}] Su valor corresponde con la nueva máscara de la
+  red. Por ejemplo: \textsf{255.255.255.0}.
+\item[\textsf{router}] Corresponde con la puerta de enlace por defecto de la red.
+\end{description}
+
+En caso de querer restaurar los valores por defectos de la interfaz,
+basta con enviar el parámetro \textsf{lab} con su respectivo valor
+\textsf{ipconfig} y omitir el resto de los parámetros. La interfaz
+debe ser reiniciada para completar la operación.
+
+\section{Código de Barras}\label{barcode}
+
+Para la impresión de etiquetas se debe utilizar la
+especificación para códigos de barra \textbf{CODE 39}. El dato a imprimir
+debe ser el código del paciente (15 caracteres).
+
+Esto debe ser vefiricado, dado que la documentación no es exacta al respecto.
+
+\end{document}
